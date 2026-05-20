@@ -167,6 +167,35 @@ const lsSet = (key, val) => {
     localStorage.setItem(key, JSON.stringify(val));
   } catch {}
 };
+const crmStorageKeys = () => Object.keys(localStorage).filter(k => k.startsWith("crm-v2"));
+const makeStorageBackup = () => ({
+  app: "lead-tracker",
+  version: 1,
+  exportedAt: new Date().toISOString(),
+  data: Object.fromEntries(crmStorageKeys().map(key => [key, localStorage.getItem(key)])),
+});
+const downloadStorageBackup = () => {
+  const backup = makeStorageBackup();
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `lead-tracker-backup-${dateKey(new Date())}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+};
+const restoreStorageBackup = async (file) => {
+  const text = await file.text();
+  const backup = JSON.parse(text);
+  const data = backup?.data;
+  if (!data || typeof data !== "object") throw new Error("Backup invalido");
+  crmStorageKeys().forEach(key => localStorage.removeItem(key));
+  Object.entries(data).forEach(([key, value]) => {
+    if (key.startsWith("crm-v2") && typeof value === "string") localStorage.setItem(key, value);
+  });
+};
 const userLeadsKey = (userId) => `${SK_LEADS}:${userId}`;
 const userIntsKey = (userId) => `${SK_INTS}:${userId}`;
 const makeUser = ({ name, pin }) => ({
@@ -477,6 +506,24 @@ export default function App() {
   const [dragId, setDragId] = useState(null);
   const [lossLeadId, setLossLeadId] = useState(null);
 
+  const loadSessionFromStorage = useCallback(() => {
+    const storedUsers = lsGet(SK_USERS) || [];
+    setUsers(storedUsers);
+    const sessionId = lsGet(SK_SESSION);
+    const sessionUser = storedUsers.find(u => u.id === sessionId) || storedUsers[0] || null;
+    setCurrentUser(sessionUser);
+    if (sessionUser) {
+      setLeads(lsGet(userLeadsKey(sessionUser.id)) || []);
+      setInts(lsGet(userIntsKey(sessionUser.id)) || []);
+      lsSet(SK_SESSION, sessionUser.id);
+    } else {
+      setLeads([]);
+      setInts([]);
+    }
+    setSel(null);
+    setView("midia");
+  }, []);
+
   useEffect(() => {
     let storedUsers = lsGet(SK_USERS) || [];
     const legacyLeads = lsGet(SK_LEADS) || [];
@@ -501,6 +548,19 @@ export default function App() {
     }
     setLoading(false);
   }, []);
+
+  const importBackup = async (file) => {
+    if (!file) return;
+    const ok = window.confirm("Importar este backup reemplaza las cuentas y leads guardados en este navegador. Continuar?");
+    if (!ok) return;
+    try {
+      await restoreStorageBackup(file);
+      loadSessionFromStorage();
+      window.alert("Backup importado. Tus cuentas y leads fueron restaurados.");
+    } catch {
+      window.alert("No pude importar el backup. Revisá que sea un archivo JSON exportado desde Lead Tracker.");
+    }
+  };
 
   const saveUsers = (nextUsers) => {
     setUsers(nextUsers);
@@ -652,7 +712,7 @@ export default function App() {
   }, [leads, listFocus, search]);
 
   if (loading) return <div style={S.loading}><div style={S.spinner} /><p style={{ color: "#667085", marginTop: 16, fontFamily: F }}>Cargando...</p></div>;
-  if (!currentUser) return <LoginScreen users={users} onLogin={loginUser} onCreate={createUser} />;
+  if (!currentUser) return <LoginScreen users={users} onLogin={loginUser} onCreate={createUser} onImportBackup={importBackup} />;
 
   return (
     <div style={S.app}>
@@ -667,7 +727,7 @@ export default function App() {
         input:focus, select:focus, textarea:focus { border-color: #2563eb !important; box-shadow: 0 0 0 3px #2563eb18; outline: none; }
       `}</style>
 
-      <Nav view={view} setView={setView} onAdd={() => setModal("add")} overdue={overdue.length} todayCount={today.length} search={search} setSearch={setSearch} currentUser={currentUser} onNewUser={() => setModal("account")} onLogout={logout} />
+      <Nav view={view} setView={setView} onAdd={() => setModal("add")} overdue={overdue.length} todayCount={today.length} search={search} setSearch={setSearch} currentUser={currentUser} onNewUser={() => setModal("account")} onLogout={logout} onExportBackup={downloadStorageBackup} onImportBackup={importBackup} />
 
       <div style={S.body}>
         {view === "midia" && <MiDia overdue={overdue} today={today} tomorrow={tomorrow} hotNoAction={hotNoAction} fu10d={fu10d} untouched={untouched} ints={ints} onSelect={(l) => { setSel(l); setView("detail"); }} onUpdate={updateLead} onDelete={deleteLead} quickAction={quickAction} pipeline$={pipeline$} convRate={convRate} active={active} onAdd={() => setModal("add")} />}
@@ -686,7 +746,7 @@ export default function App() {
   );
 }
 
-function LoginScreen({ users, onLogin, onCreate }) {
+function LoginScreen({ users, onLogin, onCreate, onImportBackup }) {
   const [mode, setMode] = useState(users.length ? "login" : "create");
   const [userId, setUserId] = useState(users[0]?.id || "");
   const [pin, setPin] = useState("");
@@ -733,13 +793,19 @@ function LoginScreen({ users, onLogin, onCreate }) {
             <button style={{ ...S.priBtn, width: "100%", marginTop: 8 }} onClick={submitCreate} disabled={!canCreate}>Crear y entrar</button>
           </>
         )}
-        {users.length > 0 && <p style={{ ...S.help, marginTop: 14 }}>Los datos se guardan localmente en este navegador.</p>}
+        <div style={{ ...S.buttonRow, justifyContent: "center" }}>
+          <label style={{ ...S.secBtn, display: "inline-flex", cursor: "pointer" }}>
+            Importar backup
+            <input style={{ display: "none" }} type="file" accept="application/json,.json" onChange={e => onImportBackup(e.target.files?.[0])} />
+          </label>
+        </div>
+        <p style={{ ...S.help, marginTop: 14 }}>Los datos se guardan localmente en este navegador. Usá backup para moverlos entre URLs o equipos.</p>
       </div>
     </div>
   );
 }
 
-function Nav({ view, setView, onAdd, overdue, todayCount, search, setSearch, currentUser, onNewUser, onLogout }) {
+function Nav({ view, setView, onAdd, overdue, todayCount, search, setSearch, currentUser, onNewUser, onLogout, onExportBackup, onImportBackup }) {
   const tabs = [{ id: "midia", label: "Mi día" }, { id: "kanban", label: "Pipeline" }, { id: "lista", label: "Lista" }, { id: "calendario", label: "Calendario" }, { id: "dashboard", label: "Dashboard" }];
   return (
     <div style={S.nav}>
@@ -754,6 +820,11 @@ function Nav({ view, setView, onAdd, overdue, todayCount, search, setSearch, cur
           <input style={S.searchBox} placeholder="Buscar lead, teléfono, producto..." value={search} onChange={e => setSearch(e.target.value)} />
           <button style={S.addBtn} onClick={onAdd}>+ Lead</button>
           <span style={S.userBadge}>{currentUser?.name}</span>
+          <button style={S.secBtn} onClick={onExportBackup}>Exportar</button>
+          <label style={{ ...S.secBtn, display: "inline-flex", cursor: "pointer" }}>
+            Importar
+            <input style={{ display: "none" }} type="file" accept="application/json,.json" onChange={e => onImportBackup(e.target.files?.[0])} />
+          </label>
           <button style={S.secBtn} onClick={onNewUser}>+ Cuenta</button>
           <button style={S.secBtn} onClick={onLogout}>Salir</button>
         </div>

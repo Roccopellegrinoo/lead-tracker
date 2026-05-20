@@ -25,6 +25,7 @@ Crear un CRM liviano para seguimiento de leads:
 - React 18
 - Tesseract.js para OCR
 - Persistencia en `localStorage`
+- Backup manual JSON con exportacion/importacion desde la UI
 - Deploy en Vercel
 
 Archivos principales:
@@ -134,6 +135,8 @@ Riesgo:
 - No hay roles/permisos reales; las cuentas son locales.
 - Los datos no se comparten entre dispositivos.
 - El calendario usa solo `followUpDate`; todavia no permite crear eventos independientes.
+- Para no perder datos entre URLs/navegadores, usar `Exportar` y `Importar backup`.
+- El siguiente salto importante es migrar de `localStorage` a una base de datos compartida.
 
 ## Prioridades sugeridas
 
@@ -160,6 +163,7 @@ Riesgo:
    - Supabase
    - Firebase
    - Neon/Postgres
+   - Vercel Postgres/Neon
 9. Agregar autenticacion real si el equipo lo necesita.
 10. Mejorar dashboard con metricas utiles:
    - conversion por etapa
