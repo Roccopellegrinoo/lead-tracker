@@ -167,7 +167,8 @@ const lsSet = (key, val) => {
     localStorage.setItem(key, JSON.stringify(val));
   } catch {}
 };
-const crmStorageKeys = () => Object.keys(localStorage).filter(k => k.startsWith("crm-v2"));
+const SK_CLOUD_TOKEN = "crm-v2-cloud-token";
+const crmStorageKeys = () => Object.keys(localStorage).filter(k => k.startsWith("crm-v2") && k !== SK_CLOUD_TOKEN);
 const makeStorageBackup = () => ({
   app: "lead-tracker",
   version: 1,
@@ -189,6 +190,9 @@ const downloadStorageBackup = () => {
 const restoreStorageBackup = async (file) => {
   const text = await file.text();
   const backup = JSON.parse(text);
+  restoreBackupData(backup);
+};
+const restoreBackupData = (backup) => {
   const data = backup?.data;
   if (!data || typeof data !== "object") throw new Error("Backup invalido");
   crmStorageKeys().forEach(key => localStorage.removeItem(key));
@@ -196,6 +200,24 @@ const restoreStorageBackup = async (file) => {
     if (key.startsWith("crm-v2") && typeof value === "string") localStorage.setItem(key, value);
   });
 };
+const getCloudToken = () => localStorage.getItem(SK_CLOUD_TOKEN) || "";
+const setCloudToken = (token) => localStorage.setItem(SK_CLOUD_TOKEN, token);
+const clearCloudToken = () => localStorage.removeItem(SK_CLOUD_TOKEN);
+const cloudRequest = async (method, token, payload) => {
+  const response = await fetch("/api/state", {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      "x-tracker-token": token,
+    },
+    body: method === "PUT" ? JSON.stringify({ payload }) : undefined,
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || "No se pudo sincronizar");
+  return data;
+};
+const fetchCloudBackup = (token) => cloudRequest("GET", token);
+const saveCloudBackup = (token) => cloudRequest("PUT", token, makeStorageBackup());
 const userLeadsKey = (userId) => `${SK_LEADS}:${userId}`;
 const userIntsKey = (userId) => `${SK_INTS}:${userId}`;
 const makeUser = ({ name, pin }) => ({
@@ -505,6 +527,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [dragId, setDragId] = useState(null);
   const [lossLeadId, setLossLeadId] = useState(null);
+  const [cloudStatus, setCloudStatus] = useState(getCloudToken() ? "Nube conectada" : "Local");
 
   const loadSessionFromStorage = useCallback(() => {
     const storedUsers = lsGet(SK_USERS) || [];
@@ -522,6 +545,18 @@ export default function App() {
     }
     setSel(null);
     setView("midia");
+  }, []);
+
+  const syncToCloud = useCallback(async () => {
+    const token = getCloudToken();
+    if (!token) return;
+    try {
+      setCloudStatus("Sincronizando...");
+      await saveCloudBackup(token);
+      setCloudStatus("Nube sincronizada");
+    } catch {
+      setCloudStatus("Nube sin conexion");
+    }
   }, []);
 
   useEffect(() => {
@@ -549,6 +584,30 @@ export default function App() {
     setLoading(false);
   }, []);
 
+  useEffect(() => {
+    const token = getCloudToken();
+    if (!token) return;
+    let cancelled = false;
+    setCloudStatus("Conectando nube...");
+    fetchCloudBackup(token)
+      .then(({ payload }) => {
+        if (cancelled) return;
+        if (payload?.data) {
+          restoreBackupData(payload);
+          loadSessionFromStorage();
+          setCloudStatus("Nube sincronizada");
+        } else {
+          syncToCloud();
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setCloudStatus("Nube sin conexion");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [loadSessionFromStorage, syncToCloud]);
+
   const importBackup = async (file) => {
     if (!file) return;
     const ok = window.confirm("Importar este backup reemplaza las cuentas y leads guardados en este navegador. Continuar?");
@@ -562,9 +621,38 @@ export default function App() {
     }
   };
 
+  const connectCloud = async () => {
+    const token = clean(window.prompt("Clave de equipo para sincronizar en la nube:"));
+    if (!token) return;
+    try {
+      setCloudStatus("Conectando nube...");
+      setCloudToken(token);
+      const { payload } = await fetchCloudBackup(token);
+      if (payload?.data) {
+        restoreBackupData(payload);
+        loadSessionFromStorage();
+      } else {
+        await saveCloudBackup(token);
+      }
+      setCloudStatus("Nube sincronizada");
+      window.alert("Nube conectada. Los datos se sincronizan con la base compartida.");
+    } catch {
+      clearCloudToken();
+      setCloudStatus("Local");
+      window.alert("No pude conectar la nube. Revisá la clave de equipo o la configuración de Supabase/Vercel.");
+    }
+  };
+
+  const disconnectCloud = () => {
+    clearCloudToken();
+    setCloudStatus("Local");
+    window.alert("Nube desconectada en este navegador. Tus datos locales siguen guardados.");
+  };
+
   const saveUsers = (nextUsers) => {
     setUsers(nextUsers);
     lsSet(SK_USERS, nextUsers);
+    syncToCloud();
   };
 
   const selectUser = (user) => {
@@ -574,6 +662,7 @@ export default function App() {
     setSel(null);
     setView("midia");
     lsSet(SK_SESSION, user.id);
+    syncToCloud();
   };
 
   const createUser = ({ name, pin }) => {
@@ -603,11 +692,13 @@ export default function App() {
   const saveL = useCallback((l) => {
     setLeads(l);
     if (currentUser) lsSet(userLeadsKey(currentUser.id), l);
-  }, [currentUser]);
+    syncToCloud();
+  }, [currentUser, syncToCloud]);
   const saveI = useCallback((i) => {
     setInts(i);
     if (currentUser) lsSet(userIntsKey(currentUser.id), i);
-  }, [currentUser]);
+    syncToCloud();
+  }, [currentUser, syncToCloud]);
 
   const addLead = (data) => {
     const next = makeLead(data);
@@ -712,7 +803,7 @@ export default function App() {
   }, [leads, listFocus, search]);
 
   if (loading) return <div style={S.loading}><div style={S.spinner} /><p style={{ color: "#667085", marginTop: 16, fontFamily: F }}>Cargando...</p></div>;
-  if (!currentUser) return <LoginScreen users={users} onLogin={loginUser} onCreate={createUser} onImportBackup={importBackup} />;
+  if (!currentUser) return <LoginScreen users={users} onLogin={loginUser} onCreate={createUser} onImportBackup={importBackup} onConnectCloud={connectCloud} cloudStatus={cloudStatus} />;
 
   return (
     <div style={S.app}>
@@ -727,7 +818,7 @@ export default function App() {
         input:focus, select:focus, textarea:focus { border-color: #2563eb !important; box-shadow: 0 0 0 3px #2563eb18; outline: none; }
       `}</style>
 
-      <Nav view={view} setView={setView} onAdd={() => setModal("add")} overdue={overdue.length} todayCount={today.length} search={search} setSearch={setSearch} currentUser={currentUser} onNewUser={() => setModal("account")} onLogout={logout} onExportBackup={downloadStorageBackup} onImportBackup={importBackup} />
+      <Nav view={view} setView={setView} onAdd={() => setModal("add")} overdue={overdue.length} todayCount={today.length} search={search} setSearch={setSearch} currentUser={currentUser} onNewUser={() => setModal("account")} onLogout={logout} onExportBackup={downloadStorageBackup} onImportBackup={importBackup} onConnectCloud={connectCloud} onDisconnectCloud={disconnectCloud} cloudStatus={cloudStatus} />
 
       <div style={S.body}>
         {view === "midia" && <MiDia overdue={overdue} today={today} tomorrow={tomorrow} hotNoAction={hotNoAction} fu10d={fu10d} untouched={untouched} ints={ints} onSelect={(l) => { setSel(l); setView("detail"); }} onUpdate={updateLead} onDelete={deleteLead} quickAction={quickAction} pipeline$={pipeline$} convRate={convRate} active={active} onAdd={() => setModal("add")} />}
@@ -746,7 +837,7 @@ export default function App() {
   );
 }
 
-function LoginScreen({ users, onLogin, onCreate, onImportBackup }) {
+function LoginScreen({ users, onLogin, onCreate, onImportBackup, onConnectCloud, cloudStatus }) {
   const [mode, setMode] = useState(users.length ? "login" : "create");
   const [userId, setUserId] = useState(users[0]?.id || "");
   const [pin, setPin] = useState("");
@@ -794,18 +885,20 @@ function LoginScreen({ users, onLogin, onCreate, onImportBackup }) {
           </>
         )}
         <div style={{ ...S.buttonRow, justifyContent: "center" }}>
+          <button style={S.secBtn} onClick={onConnectCloud}>Conectar nube</button>
           <label style={{ ...S.secBtn, display: "inline-flex", cursor: "pointer" }}>
             Importar backup
             <input style={{ display: "none" }} type="file" accept="application/json,.json" onChange={e => onImportBackup(e.target.files?.[0])} />
           </label>
         </div>
+        <p style={{ ...S.help, textAlign: "center", marginTop: 8 }}>Estado: {cloudStatus}</p>
         <p style={{ ...S.help, marginTop: 14 }}>Los datos se guardan localmente en este navegador. Usá backup para moverlos entre URLs o equipos.</p>
       </div>
     </div>
   );
 }
 
-function Nav({ view, setView, onAdd, overdue, todayCount, search, setSearch, currentUser, onNewUser, onLogout, onExportBackup, onImportBackup }) {
+function Nav({ view, setView, onAdd, overdue, todayCount, search, setSearch, currentUser, onNewUser, onLogout, onExportBackup, onImportBackup, onConnectCloud, onDisconnectCloud, cloudStatus }) {
   const tabs = [{ id: "midia", label: "Mi día" }, { id: "kanban", label: "Pipeline" }, { id: "lista", label: "Lista" }, { id: "calendario", label: "Calendario" }, { id: "dashboard", label: "Dashboard" }];
   return (
     <div style={S.nav}>
@@ -820,6 +913,8 @@ function Nav({ view, setView, onAdd, overdue, todayCount, search, setSearch, cur
           <input style={S.searchBox} placeholder="Buscar lead, teléfono, producto..." value={search} onChange={e => setSearch(e.target.value)} />
           <button style={S.addBtn} onClick={onAdd}>+ Lead</button>
           <span style={S.userBadge}>{currentUser?.name}</span>
+          <span style={S.cloudBadge}>{cloudStatus}</span>
+          <button style={S.secBtn} onClick={getCloudToken() ? onDisconnectCloud : onConnectCloud}>{getCloudToken() ? "Desconectar nube" : "Conectar nube"}</button>
           <button style={S.secBtn} onClick={onExportBackup}>Exportar</button>
           <label style={{ ...S.secBtn, display: "inline-flex", cursor: "pointer" }}>
             Importar
@@ -1546,6 +1641,7 @@ const S = {
   searchBox: { background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: 6, color: "#172033", padding: "8px 12px", fontSize: 12, fontFamily: F, width: 260, outline: "none" },
   addBtn: { background: "#2563eb", color: "#fff", border: "none", borderRadius: 6, padding: "8px 14px", fontSize: 12, fontWeight: 800, cursor: "pointer", fontFamily: F, boxShadow: "0 6px 14px rgba(37, 99, 235, 0.18)" },
   userBadge: { background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 6, color: "#1d4ed8", padding: "7px 10px", fontSize: 12, fontWeight: 800 },
+  cloudBadge: { background: "#ecfdf3", border: "1px solid #bbf7d0", borderRadius: 6, color: "#166534", padding: "7px 10px", fontSize: 11, fontWeight: 800 },
   tabOff: { background: "none", border: "none", color: "#667085", fontSize: 12, fontWeight: 600, padding: "9px 14px", cursor: "pointer", borderBottom: "2px solid transparent", fontFamily: F, whiteSpace: "nowrap" },
   tabOn: { background: "none", border: "none", color: "#172033", fontSize: 12, fontWeight: 800, padding: "9px 14px", cursor: "pointer", borderBottom: "2px solid #2563eb", fontFamily: F, whiteSpace: "nowrap" },
   body: { flex: 1, padding: 20, overflow: "auto" },

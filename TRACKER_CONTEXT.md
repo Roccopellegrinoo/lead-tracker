@@ -26,11 +26,14 @@ Crear un CRM liviano para seguimiento de leads:
 - Tesseract.js para OCR
 - Persistencia en `localStorage`
 - Backup manual JSON con exportacion/importacion desde la UI
+- Sincronizacion opcional con Supabase mediante `/api/state`
 - Deploy en Vercel
 
 Archivos principales:
 
 - `src/App.jsx`: contiene practicamente toda la app.
+- `api/state.js`: API serverless para leer/escribir estado compartido en Supabase.
+- `supabase/schema.sql`: tabla `tracker_state` para guardar el estado del tracker.
 - `src/main.jsx`: monta React.
 - `package.json`: scripts y dependencias.
 - `README.md`: instrucciones basicas.
@@ -136,7 +139,7 @@ Riesgo:
 - Los datos no se comparten entre dispositivos.
 - El calendario usa solo `followUpDate`; todavia no permite crear eventos independientes.
 - Para no perder datos entre URLs/navegadores, usar `Exportar` y `Importar backup`.
-- El siguiente salto importante es migrar de `localStorage` a una base de datos compartida.
+- La nube con Supabase usa un estado compartido por workspace; no hay edicion concurrente avanzada.
 
 ## Prioridades sugeridas
 
@@ -159,11 +162,11 @@ Riesgo:
 5. Agregar importacion CSV simple.
 6. Agregar tests para parseo/OCR helpers.
 7. Agregar exportacion de leads a CSV.
-8. Evaluar backend compartido:
-   - Supabase
-   - Firebase
-   - Neon/Postgres
-   - Vercel Postgres/Neon
+8. Mejorar backend compartido:
+   - sincronizacion por lead en vez de guardar todo como un blob
+   - usuarios reales con Supabase Auth
+   - auditoria de cambios
+   - resolucion de conflictos
 9. Agregar autenticacion real si el equipo lo necesita.
 10. Mejorar dashboard con metricas utiles:
    - conversion por etapa
