@@ -57,6 +57,7 @@ export function AddModal({ onAdd, onBulkAdd, onClose }) {
   
   // States for standard bulk text import
   const [bulk, setBulk] = useState("");
+  const [draggingBulk, setDraggingBulk] = useState(false);
   const classified = useMemo(() => classifyBulk(bulk, f), [bulk, f]);
   const [importItems, setImportItems] = useState([]);
   
@@ -303,11 +304,30 @@ export function AddModal({ onAdd, onBulkAdd, onClose }) {
               <input style={S.input} type="date" value={f.followUpDate} onChange={e => sF({ ...f, followUpDate: e.target.value })} />
             </div>
             <textarea
-              style={{ ...S.input, minHeight: 140, resize: "vertical", marginBottom: 12 }}
+              style={{
+                ...S.input,
+                minHeight: 140,
+                resize: "vertical",
+                marginBottom: 12,
+                border: draggingBulk ? "2px dashed #2563eb" : undefined,
+                background: draggingBulk ? "#eff6ff" : undefined,
+                transition: "border-color 0.15s, background 0.15s",
+              }}
               value={bulk}
               onChange={e => setBulk(e.target.value)}
               autoFocus
-              placeholder="Juan Perez, 11 5555-5555, juan@email.com, Crowdium, 250000&#10;Maria Gomez, 11 4444-4444, maria@email.com"
+              placeholder="Juan Perez, 11 5555-5555, juan@email.com, Crowdium, 250000&#10;Maria Gomez, 11 4444-4444, maria@email.com&#10;&#10;— o arrastrá un archivo CSV acá —"
+              onDragOver={e => { e.preventDefault(); setDraggingBulk(true); }}
+              onDragLeave={() => setDraggingBulk(false)}
+              onDrop={e => {
+                e.preventDefault();
+                setDraggingBulk(false);
+                const file = e.dataTransfer.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = ev => setBulk(ev.target.result || "");
+                reader.readAsText(file, "UTF-8");
+              }}
             />
             <LeadImportReviewEditable items={importItems} onChange={updateImportItem} onRemove={removeImportItem} />
             <div style={S.modalActions}>
