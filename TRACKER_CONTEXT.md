@@ -95,6 +95,7 @@ Canales:
 - Vista "Mi dia" con vencidos, hoy, manana y leads sin tocar.
 - Kanban por etapas.
 - Lista con filtros, paginacion, seleccion multiple y edicion inline.
+- Calendario mensual de seguimientos por `followUpDate`.
 - Dashboard simple con pipeline, conversion, perdidos y actividad.
 - Detalle de lead con historial e interacciones.
 - Carga manual de un lead.
@@ -132,6 +133,7 @@ Riesgo:
 - El OCR depende mucho de la calidad y el recorte de la captura.
 - No hay roles/permisos reales; las cuentas son locales.
 - Los datos no se comparten entre dispositivos.
+- El calendario usa solo `followUpDate`; todavia no permite crear eventos independientes.
 
 ## Prioridades sugeridas
 
@@ -146,20 +148,25 @@ Riesgo:
    - Preview claro de nombres detectados.
    - Boton para borrar todos los importados recientes.
    - Mensaje de "solo nombres" visible.
-4. Agregar importacion CSV simple.
-5. Agregar tests para parseo/OCR helpers.
-6. Agregar exportacion de leads a CSV.
-7. Evaluar backend compartido:
+4. Mejorar calendario:
+   - vista semanal
+   - drag & drop para mover follow-ups
+   - filtros por etapa/responsable
+   - crear eventos/tareas sin lead
+5. Agregar importacion CSV simple.
+6. Agregar tests para parseo/OCR helpers.
+7. Agregar exportacion de leads a CSV.
+8. Evaluar backend compartido:
    - Supabase
    - Firebase
    - Neon/Postgres
-8. Agregar autenticacion real si el equipo lo necesita.
-9. Mejorar dashboard con metricas utiles:
+9. Agregar autenticacion real si el equipo lo necesita.
+10. Mejorar dashboard con metricas utiles:
    - conversion por etapa
    - leads por responsable
    - llamadas por dia
    - vencidos por antiguedad
-10. Mejorar mobile/responsividad.
+11. Mejorar mobile/responsividad.
 
 ## Plan recomendado para la proxima sesion
 

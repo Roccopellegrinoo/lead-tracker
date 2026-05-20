@@ -48,6 +48,29 @@ const isTomorrow = (d) => {
 const fmt = (d) => d ? new Date(d).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" }) : "";
 const fmtFull = (d) => d ? new Date(d).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "2-digit" }) : "";
 const fmtMoney = (n) => n ? `$${Number(n).toLocaleString("es-AR")}` : "";
+const dateKey = (d) => {
+  if (!d) return "";
+  if (typeof d === "string" && /^\d{4}-\d{2}-\d{2}/.test(d)) return d.slice(0, 10);
+  const date = new Date(d);
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+const monthLabel = (d) => d.toLocaleDateString("es-AR", { month: "long", year: "numeric" });
+const sameMonth = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
+const addMonths = (date, count) => new Date(date.getFullYear(), date.getMonth() + count, 1);
+const calendarDays = (monthDate) => {
+  const first = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+  const mondayIndex = (first.getDay() + 6) % 7;
+  const start = new Date(first);
+  start.setDate(first.getDate() - mondayIndex);
+  return Array.from({ length: 42 }, (_, i) => {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    return d;
+  });
+};
 const clean = (v) => (v || "").toString().trim();
 const cleanAmount = (v) => clean(v).replace(/[^\d.,]/g, "").replace(/\./g, "").replace(",", ".");
 const titleName = (value) => clean(value)
@@ -650,6 +673,7 @@ export default function App() {
         {view === "midia" && <MiDia overdue={overdue} today={today} tomorrow={tomorrow} hotNoAction={hotNoAction} fu10d={fu10d} untouched={untouched} ints={ints} onSelect={(l) => { setSel(l); setView("detail"); }} onUpdate={updateLead} onDelete={deleteLead} quickAction={quickAction} pipeline$={pipeline$} convRate={convRate} active={active} onAdd={() => setModal("add")} />}
         {view === "kanban" && <Kanban leads={filtered} ints={ints} onSelect={(l) => { setSel(l); setView("detail"); }} onMove={moveLead} dragId={dragId} setDragId={setDragId} quickAction={quickAction} />}
         {view === "lista" && <Lista leads={filtered} ints={ints} onSelect={(l) => { setSel(l); setView("detail"); }} onUpdate={updateLead} onDelete={deleteLead} onBulkDelete={deleteLeads} focus={listFocus} setFocus={setListFocus} />}
+        {view === "calendario" && <Calendario leads={active} ints={ints} onSelect={(l) => { setSel(l); setView("detail"); }} onUpdate={updateLead} quickAction={quickAction} />}
         {view === "dashboard" && <Dashboard leads={leads} ints={ints} pipeline$={pipeline$} convRate={convRate} converted={converted} active={active} />}
         {view === "detail" && sel && <Detail lead={leads.find(l => l.id === sel.id) || sel} ints={getLeadInts(sel.id)} allInts={ints} onBack={() => { setSel(null); setView("midia"); }} onUpdate={(u) => updateLead(sel.id, u)} onDelete={() => deleteLead(sel.id)} onAddInt={() => setModal("interaction")} onMove={(s) => moveLead(sel.id, s)} quickAction={(a) => quickAction(sel.id, a)} setFollowUp={(days) => setFollowUp(sel.id, days)} />}
       </div>
@@ -716,7 +740,7 @@ function LoginScreen({ users, onLogin, onCreate }) {
 }
 
 function Nav({ view, setView, onAdd, overdue, todayCount, search, setSearch, currentUser, onNewUser, onLogout }) {
-  const tabs = [{ id: "midia", label: "Mi día" }, { id: "kanban", label: "Pipeline" }, { id: "lista", label: "Lista" }, { id: "dashboard", label: "Dashboard" }];
+  const tabs = [{ id: "midia", label: "Mi día" }, { id: "kanban", label: "Pipeline" }, { id: "lista", label: "Lista" }, { id: "calendario", label: "Calendario" }, { id: "dashboard", label: "Dashboard" }];
   return (
     <div style={S.nav}>
       <div style={S.navTop}>
@@ -1026,6 +1050,104 @@ function Lista({ leads, ints, onSelect, onUpdate, onDelete, onBulkDelete, focus,
         );
       })}
       {fl.length === 0 && <p style={S.noResults}>Sin resultados</p>}
+    </div>
+  );
+}
+
+function Calendario({ leads, ints, onSelect, onUpdate, quickAction }) {
+  const [month, setMonth] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const [selectedDate, setSelectedDate] = useState(dateKey(new Date()));
+  const weekdays = ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab", "Dom"];
+  const active = leads.filter(l => !["invertido", "perdido"].includes(l.stage));
+  const byDate = active.reduce((map, lead) => {
+    const key = dateKey(lead.followUpDate);
+    if (!key) return map;
+    map[key] = [...(map[key] || []), lead];
+    return map;
+  }, {});
+  const days = calendarDays(month);
+  const selectedLeads = (byDate[selectedDate] || []).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const overdue = active.filter(l => isOverdue(l.followUpDate)).sort((a, b) => new Date(a.followUpDate) - new Date(b.followUpDate));
+  const todayKey = dateKey(new Date());
+  const monthCount = active.filter(l => l.followUpDate && sameMonth(new Date(l.followUpDate), month)).length;
+
+  return (
+    <div style={S.calendarWrap}>
+      <div style={S.calendarHead}>
+        <div>
+          <h2 style={S.h2}>Calendario</h2>
+          <p style={S.muted}>{monthCount} seguimiento{monthCount === 1 ? "" : "s"} este mes</p>
+        </div>
+        <div style={S.calendarControls}>
+          <button style={S.secBtn} onClick={() => setMonth(addMonths(month, -1))}>Anterior</button>
+          <button style={S.secBtn} onClick={() => { const now = new Date(); setMonth(new Date(now.getFullYear(), now.getMonth(), 1)); setSelectedDate(dateKey(now)); }}>Hoy</button>
+          <button style={S.secBtn} onClick={() => setMonth(addMonths(month, 1))}>Siguiente</button>
+        </div>
+      </div>
+      <div style={S.calendarLayout}>
+        <div style={S.calendarPanel}>
+          <div style={S.calendarTitle}>{monthLabel(month)}</div>
+          <div style={S.weekGrid}>{weekdays.map(day => <div key={day} style={S.weekday}>{day}</div>)}</div>
+          <div style={S.monthGrid}>
+            {days.map(day => {
+              const key = dateKey(day);
+              const items = byDate[key] || [];
+              const selected = key === selectedDate;
+              const isCurrentMonth = sameMonth(day, month);
+              const isTodayCell = key === todayKey;
+              return (
+                <button key={key} style={{ ...S.dayCell, ...(isCurrentMonth ? {} : S.dayMuted), ...(selected ? S.daySelected : {}), ...(isTodayCell ? S.dayToday : {}) }} onClick={() => setSelectedDate(key)}>
+                  <span style={S.dayNumber}>{day.getDate()}</span>
+                  {items.length > 0 && <span style={S.dayCount}>{items.length}</span>}
+                  <div style={S.dayDots}>
+                    {items.slice(0, 3).map(item => {
+                      const stg = STAGES.find(s => s.id === item.stage);
+                      return <span key={item.id} style={{ ...S.dayDot, background: stg?.color || "#2563eb" }} />;
+                    })}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div style={S.calendarSide}>
+          <CalendarLeadList title={`Agenda ${fmtFull(selectedDate)}`} leads={selectedLeads} ints={ints} empty="Sin seguimientos para este dia" onSelect={onSelect} onUpdate={onUpdate} quickAction={quickAction} />
+          {overdue.length > 0 && <CalendarLeadList title={`Vencidos (${overdue.length})`} leads={overdue.slice(0, 8)} ints={ints} onSelect={onSelect} onUpdate={onUpdate} quickAction={quickAction} compact />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CalendarLeadList({ title, leads, ints, empty, onSelect, onUpdate, quickAction, compact }) {
+  return (
+    <div style={S.calendarList}>
+      <h3 style={S.secTitle}>{title}</h3>
+      {leads.length === 0 ? <p style={S.noData}>{empty}</p> : leads.map(lead => {
+        const stg = STAGES.find(s => s.id === lead.stage);
+        const temp = getTemp(lead, ints);
+        const t = temp ? TEMP[temp] : null;
+        return (
+          <div key={lead.id} style={S.calendarItem}>
+            <div style={S.calendarItemMain} onClick={() => onSelect(lead)}>
+              <span style={{ ...S.pill, background: stg?.color + "20", color: stg?.color }}>{stg?.label}</span>
+              <strong style={S.leadName}>{lead.name}</strong>
+              <div style={S.chips}>
+                {t && <span style={S.chip}>{t.name}</span>}
+                {lead.phone && <span style={S.chip}>{lead.phone}</span>}
+                {lead.email && <span style={S.chip}>{lead.email}</span>}
+                {lead.followUpDate && <span style={isOverdue(lead.followUpDate) ? S.chipDanger : S.chip}>FU {fmt(lead.followUpDate)}</span>}
+              </div>
+            </div>
+            {!compact && (
+              <div style={S.quickRow}>
+                {QUICK_ACTIONS.map(a => <button key={a.id} onClick={() => quickAction(lead.id, a)} style={S.qBtn} title={a.label}>{a.icon}</button>)}
+                <button style={S.qBtn} onClick={() => onUpdate(lead.id, { followUpDate: dateInDays(1) })}>+1d</button>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1413,6 +1535,27 @@ const S = {
   gridInput: { flex: 1, minWidth: 115, background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: 5, color: "#172033", padding: "7px 8px", fontSize: 11, fontFamily: F, outline: "none" },
   tableMuted: { flex: 1, color: "#667085" },
   noResults: { textAlign: "center", color: "#667085", padding: 20, fontSize: 13 },
+  calendarWrap: { animation: "fadeIn 0.3s ease", display: "flex", flexDirection: "column", gap: 14 },
+  calendarHead: { display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 12 },
+  calendarControls: { display: "flex", gap: 8, flexWrap: "wrap" },
+  calendarLayout: { display: "grid", gridTemplateColumns: "minmax(0, 1.6fr) minmax(280px, 0.8fr)", gap: 14, alignItems: "start" },
+  calendarPanel: { background: "#ffffff", border: "1px solid #dbe5f0", borderRadius: 8, padding: 14, boxShadow: "0 1px 3px rgba(15, 23, 42, 0.04)", overflowX: "auto" },
+  calendarTitle: { textTransform: "capitalize", fontSize: 15, fontWeight: 800, color: "#172033", marginBottom: 12 },
+  weekGrid: { display: "grid", gridTemplateColumns: "repeat(7, minmax(82px, 1fr))", gap: 6, minWidth: 640 },
+  weekday: { fontSize: 10, color: "#667085", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.5, padding: "0 6px 4px" },
+  monthGrid: { display: "grid", gridTemplateColumns: "repeat(7, minmax(82px, 1fr))", gap: 6, minWidth: 640 },
+  dayCell: { minHeight: 92, background: "#f8fafc", border: "1px solid #e5eaf0", borderRadius: 6, padding: 8, cursor: "pointer", fontFamily: F, textAlign: "left", display: "flex", flexDirection: "column", gap: 5, color: "#172033" },
+  dayMuted: { opacity: 0.42 },
+  daySelected: { borderColor: "#2563eb", background: "#eff6ff", boxShadow: "0 0 0 2px #2563eb18" },
+  dayToday: { borderColor: "#93c5fd" },
+  dayNumber: { fontSize: 12, fontWeight: 800, lineHeight: 1 },
+  dayCount: { alignSelf: "flex-start", fontSize: 10, color: "#1d4ed8", background: "#dbeafe", borderRadius: 999, padding: "2px 7px", fontWeight: 800 },
+  dayDots: { display: "flex", gap: 3, marginTop: "auto" },
+  dayDot: { width: 7, height: 7, borderRadius: "50%" },
+  calendarSide: { display: "flex", flexDirection: "column", gap: 12, minWidth: 0 },
+  calendarList: { background: "#ffffff", border: "1px solid #dbe5f0", borderRadius: 8, padding: 12, boxShadow: "0 1px 3px rgba(15, 23, 42, 0.04)" },
+  calendarItem: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", padding: "10px 0", borderBottom: "1px solid #eef2f7" },
+  calendarItemMain: { cursor: "pointer", minWidth: 0, display: "flex", flexDirection: "column", gap: 5, flex: 1 },
   pill: { fontSize: 9, padding: "2px 7px", borderRadius: 4, fontWeight: 700 },
   bigStatsGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 },
   bigStat: { background: "#ffffff", border: "1px solid #dbe5f0", borderRadius: 8, padding: "15px 18px", display: "flex", flexDirection: "column", gap: 3, boxShadow: "0 1px 3px rgba(15, 23, 42, 0.04)" },
