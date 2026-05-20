@@ -8,6 +8,8 @@ import {
   userIntsKey,
   SK_USERS,
   SK_SESSION,
+  SK_LEADS,
+  SK_INTS,
   getCloudToken,
   setCloudToken,
   clearCloudToken,
