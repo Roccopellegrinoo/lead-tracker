@@ -59,6 +59,7 @@ export default function App() {
   const [dragId, setDragId] = useState(null);
   const [lossLeadId, setLossLeadId] = useState(null);
   const [cloudStatus, setCloudStatus] = useState(getCloudToken() ? "Nube conectada" : "Local");
+  const [dropOverlay, setDropOverlay] = useState(false);
 
   const loadSessionFromStorage = useCallback(() => {
     const storedUsers = lsGet(SK_USERS) || [];
@@ -334,11 +335,45 @@ export default function App() {
     });
   }, [leads, listFocus, search]);
 
+  const handleAppDragOver = (e) => {
+    const hasJson = [...(e.dataTransfer.items || [])].some(i => i.type === "application/json" || i.type === "");
+    if (hasJson || e.dataTransfer.types.includes("Files")) {
+      e.preventDefault();
+      setDropOverlay(true);
+    }
+  };
+
+  const handleAppDrop = (e) => {
+    e.preventDefault();
+    setDropOverlay(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file && (file.name.endsWith(".json"))) importBackup(file);
+  };
+
   if (loading) return <div style={S.loading}><div style={S.spinner} /><p style={{ color: "#667085", marginTop: 16, fontFamily: F }}>Cargando...</p></div>;
   if (!currentUser) return <LoginScreen users={users} onLogin={loginUser} onCreate={createUser} onImportBackup={importBackup} onConnectCloud={connectCloud} cloudStatus={cloudStatus} />;
 
   return (
-    <div style={S.app}>
+    <div
+      style={S.app}
+      onDragOver={handleAppDragOver}
+      onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setDropOverlay(false); }}
+      onDrop={handleAppDrop}
+    >
+      {dropOverlay && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 9999,
+          background: "#2563eb22", border: "3px dashed #2563eb",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          pointerEvents: "none",
+        }}>
+          <div style={{ background: "#fff", borderRadius: 16, padding: "32px 48px", boxShadow: "0 8px 32px #0002", textAlign: "center" }}>
+            <div style={{ fontSize: 40, marginBottom: 8 }}>📥</div>
+            <div style={{ fontWeight: 700, fontSize: 18, color: "#2563eb" }}>Soltá el backup para importar</div>
+            <div style={{ color: "#667085", fontSize: 13, marginTop: 4 }}>Archivo .json exportado desde Lead Tracker</div>
+          </div>
+        </div>
+      )}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,500;9..40,700&family=DM+Mono:wght@400;500&display=swap');
         @keyframes spin { to { transform: rotate(360deg); } }
